@@ -1,23 +1,26 @@
-
 import pandas as pd
 import streamlit as st
+import pydeck as pdk
 
-st.set_page_config(page_title="Green Hydrogen Projects Finder", layout="wide")
+st.set_page_config(page_title="Green Hydrogen Project Locator", layout="wide")
+st.title("🌍 Green Hydrogen Project Locator")
+st.markdown("Search for **green hydrogen projects** using electrolysis from the IEA database.")
 
-# Load the dataset
-df = pd.read_csv("iea_h2_clean.csv")
+# Load the data
+df = pd.read_csv("green_h2_locator_ready.csv")
 
-st.title("🌍 Green Hydrogen Projects Lookup")
-st.markdown("Search for **green hydrogen projects** using electrolysis (from IEA data).")
+# Search input
+country = st.text_input("Enter a country name to search:")
 
-search = st.text_input("🔎 Enter a country, region, or keyword:")
-
-if search:
-    results = df[
-        df["Technology Comments"].str.contains(search, case=False, na=False) |
-        df["Type of electricity (for electrolysis projects)"].str.contains(search, case=False, na=False)
-    ]
-    st.success(f"{len(results)} project(s) found.")
-    st.dataframe(results)
+if country:
+    filtered = df[df["Country"].str.contains(country, case=False, na=False)]
+    
+    if len(filtered) > 0:
+        st.success(f"Found {len(filtered)} green hydrogen project(s) in {country.title()}.")
+        
+        st.map(filtered[["Latitude", "Longitude"]])
+        st.dataframe(filtered.reset_index(drop=True))
+    else:
+        st.warning(f"No green hydrogen projects found in '{country}'.")
 else:
-    st.info("Type a keyword or country to search electrolysis-based hydrogen projects.")
+    st.info("Enter a country name to begin.")
