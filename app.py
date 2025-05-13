@@ -1,39 +1,60 @@
 import pandas as pd
 import streamlit as st
+import pydeck as pdk
 
-st.set_page_config(page_title="Green Hydrogen Projects (IEA)", layout="wide")
-st.title("🌍 Green Hydrogen Projects Viewer (IEA)")
-st.markdown("Search by **country, project name, or status** from the official IEA dataset. Fast. No delays.")
+st.set_page_config(page_title="Green Hydrogen Locator", layout="wide")
+st.title("🌍 Green Hydrogen Projects Viewer")
+st.markdown("Search by **country** to view real projects and their technologies from your dataset.")
 
-# Load the Excel file
-EXCEL_FILE = "IEA Hydrogen Production Projects Database_update_5_March_202555.xlsx"
-df = pd.read_excel(EXCEL_FILE, sheet_name="Projects", header=2)
+# Load your Excel file (must match filename in repo)
+EXCEL_FILE = "Hydro Database - Final.xlsx"
+df = pd.read_excel(EXCEL_FILE)
 
-# Clean coordinates
+# Ensure lat/lon are numeric
 df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
 df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
 df = df.dropna(subset=["Latitude", "Longitude"])
 
-# Search input
-query = st.text_input("🔍 Enter a keyword (project, country, or status):")
+# Search box
+query = st.text_input("🔍 Enter a country name (e.g. USA, NLD, FRA):")
 
 if query:
-    filtered = df[
-        df["Project name"].astype(str).str.contains(query, case=False, na=False) |
-        df["Country"].astype(str).str.contains(query, case=False, na=False) |
-        df["Status"].astype(str).str.contains(query, case=False, na=False)
-    ]
-    st.success(f"✅ Found {len(filtered)} matching project(s).")
+    filtered = df[df["Country"].astype(str).str.contains(query, case=False, na=False)]
+    st.success(f"✅ Found {len(filtered)} project(s) in '{query}'.")
 
     if not filtered.empty:
-        result = filtered[[
-            "Project name", "Status", "Technology", "Announced Size", "Country", "Latitude", "Longitude"
-        ]].copy()
-        result.columns = [
-            "Project Name", "Status", "Technology", "Announced Size", "Country", "Latitude", "Longitude"
-        ]
-        st.dataframe(result.reset_index(drop=True))
+        # Map
+        st.pydeck_chart(pdk.Deck(
+            map_style="mapbox://styles/mapbox/light-v9",
+            initial_view_state=pdk.ViewState(
+                latitude=filtered["Latitude"].mean(),
+                longitude=filtered["Longitude"].mean(),
+                zoom=4,
+                pitch=0
+            ),
+            layers=[
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    data=filtered,
+                    get_position='[Longitude, Latitude]',
+                    get_radius=30000,
+                    get_color=[0, 120, 200, 160],
+                    pickable=True
+                )
+            ],
+            tooltip={
+                "html": "<b>Project:</b> {Project Name}<br/>"
+                        "<b>Status:</b> {Status}<br/>"
+                        "<b>Tech:</b> {Technology}<br/>"
+                        "<b>Product:</b> {Product}<br/>"
+                        "<b>Size:</b> {Announced Size}",
+                "style": {"backgroundColor": "navy", "color": "white"}
+            }
+        ))
+
+        # Table view
+        st.dataframe(filtered.reset_index(drop=True))
     else:
-        st.warning("No matching projects found.")
+        st.warning("No projects found for that country.")
 else:
-    st.info("Type a project name, status, or country to begin.")
+    st.info("Enter a country to begin.")
