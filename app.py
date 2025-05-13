@@ -1,53 +1,39 @@
 import pandas as pd
 import streamlit as st
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
 
-st.set_page_config(page_title="Green Hydrogen Locator", layout="wide")
-st.title("🌍 Green Hydrogen Projects by Region")
-st.markdown("Enter a state, region, or province to find hydrogen projects from the original IEA dataset.")
+st.set_page_config(page_title="Green Hydrogen Projects (IEA)", layout="wide")
+st.title("🌍 Green Hydrogen Projects Viewer (IEA)")
+st.markdown("Search by **country, project name, or status** from the official IEA dataset. Fast. No delays.")
 
-# Load the Excel file (must be in same directory in GitHub repo)
+# Load the Excel file
 EXCEL_FILE = "IEA Hydrogen Production Projects Database_update_5_March_202555.xlsx"
-
-# Load headers
 df = pd.read_excel(EXCEL_FILE, sheet_name="Projects", header=2)
 
-# Ensure coordinates are clean
+# Clean coordinates
 df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
 df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
 df = df.dropna(subset=["Latitude", "Longitude"])
 
-# Reverse geocode coordinates
-geolocator = Nominatim(user_agent="green-h2-locator")
-reverse = RateLimiter(geolocator.reverse, min_delay_seconds=1)
-
-@st.cache_data(show_spinner=True)
-def add_region_column(data):
-    def get_region(lat, lon):
-        try:
-            location = reverse((lat, lon), language='en')
-            return location.raw.get("address", {}).get("state") or ""
-        except:
-            return ""
-    data["Region"] = data.apply(lambda row: get_region(row["Latitude"], row["Longitude"]), axis=1)
-    return data
-
-st.info("Processing coordinates...")
-df = add_region_column(df)
-
-# Search bar
-query = st.text_input("🔍 Enter a U.S. state, province, or region:")
+# Search input
+query = st.text_input("🔍 Enter a keyword (project, country, or status):")
 
 if query:
-    matches = df[df["Region"].str.contains(query, case=False, na=False)]
-    st.success(f"✅ Found {len(matches)} projects in or near '{query}'.")
+    filtered = df[
+        df["Project name"].astype(str).str.contains(query, case=False, na=False) |
+        df["Country"].astype(str).str.contains(query, case=False, na=False) |
+        df["Status"].astype(str).str.contains(query, case=False, na=False)
+    ]
+    st.success(f"✅ Found {len(filtered)} matching project(s).")
 
-    if not matches.empty:
-        result = matches[["Project name", "Status", "Technology", "Announced Size", "Country", "Region"]]
-        result.columns = ["Project Name", "Status", "Technology", "Announced Size", "Country", "Region"]
+    if not filtered.empty:
+        result = filtered[[
+            "Project name", "Status", "Technology", "Announced Size", "Country", "Latitude", "Longitude"
+        ]].copy()
+        result.columns = [
+            "Project Name", "Status", "Technology", "Announced Size", "Country", "Latitude", "Longitude"
+        ]
         st.dataframe(result.reset_index(drop=True))
     else:
         st.warning("No matching projects found.")
 else:
-    st.info("Type a location to search.")
+    st.info("Type a project name, status, or country to begin.")
