@@ -1,5 +1,5 @@
-# app.py  –  final layout-fix version
-# -----------------------------------
+# app.py  –  final single-column layout
+# ------------------------------------
 import streamlit as st
 import pandas as pd
 import folium
@@ -10,11 +10,11 @@ from geopy.distance import geodesic
 
 st.set_page_config(page_title="Hydrogen Projects Locator", layout="wide")
 
-# --- tiny CSS tweak to kill Streamlit’s default big gaps ------------
+# --- tiny CSS tweak to keep widgets snug ----------------------------
 st.markdown(
     """
     <style>
-    .block-container > div + div { margin-top: 0.3rem !important; }
+    .block-container > div + div { margin-top: 0.5rem !important; }
     .block-container { padding-top: 1rem !important; }
     </style>
     """,
@@ -39,12 +39,12 @@ def geocode(place: str):
     return (loc.latitude, loc.longitude) if loc else None
 
 # -------------- DISTANCE FILTER ------------------------------------
-def nearby(center, r_miles: int):
+def nearby(center, radius_mi: int):
     lat0, lon0 = center
     out = []
     for _, row in df.iterrows():
         d = geodesic((lat0, lon0), (row.Latitude, row.Longitude)).miles
-        if d <= r_miles:
+        if d <= radius_mi:
             rec = row.to_dict()
             rec["Distance (miles)"] = round(d, 1)
             out.append(rec)
@@ -52,7 +52,7 @@ def nearby(center, r_miles: int):
 
 # -------------- SIDEBAR SEARCH FORM --------------------------------
 with st.sidebar.form("search"):
-    st.header("🔎  Search")
+    st.header("🔍  Search")
     country  = st.text_input("Country *")
     city     = st.text_input("City / State (optional)")
     radius   = st.slider("Radius (miles)", 100, 1000, 500)
@@ -72,7 +72,7 @@ if submitted:
         st.session_state["coords"]  = coords
         st.session_state["results"] = nearby(coords, radius)
 
-# ---------------- DISPLAY SAVED RESULTS ----------------------------
+# ---------------- DISPLAY RESULTS ----------------------------------
 if "results" in st.session_state and not st.session_state["results"].empty:
     results = st.session_state["results"]
     center  = st.session_state["coords"]
@@ -94,12 +94,11 @@ if "results" in st.session_state and not st.session_state["results"].empty:
                    f"Distance: {r['Distance (miles)']} mi")
         ).add_to(cluster)
 
-    # place map and table side-by-side (no vertical gap)
-    col_map, col_tbl = st.columns([2, 1], gap="small")
-    with col_map:
-        st_folium(m, height=500, width=900)
-    with col_tbl:
-        st.subheader("📋 Projects")
+    # ---- map + table in SINGLE container (no vertical gap) ----------
+    with st.container():
+        st_folium(m, height=500, use_container_width=True)
+
+        st.subheader("📋 Projects within radius")
         st.dataframe(
             results[["Project name", "Country", "Location", "Status",
                      "Technology", "Product", "Announced Size",
