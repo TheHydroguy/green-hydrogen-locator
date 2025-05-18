@@ -20,64 +20,62 @@ df = load_data()
 # Geocode input location
 @st.cache_data
 def geocode_location(query):
-    geolocator = Nominatim(user_agent="project_locator")
+    geolocator = Nominatim(user_agent="hydrogen_locator")
     location = geolocator.geocode(query)
-    return (location.latitude, location.longitude) if location else (None, None)
+    return (location.latitude, location.longitude) if location else None
 
 # Filter projects within radius
 def filter_projects(df, coords, radius=500):
-    if coords == (None, None):
-        return pd.DataFrame()
     df['Distance (miles)'] = df.apply(lambda row: geodesic(coords, (row.Latitude, row.Longitude)).miles, axis=1)
     return df[df['Distance (miles)'] <= radius].sort_values(by='Distance (miles)')
 
-# App UI
-st.title("🌍 Hydrogen Projects Locator")
-
+# Sidebar UI
 with st.sidebar:
     st.header("🔎 Search Projects")
     country = st.text_input("Country (required):")
     location = st.text_input("City or State (optional):")
-    radius = st.slider("Search radius (miles)", 100, 1000, 500, step=50)
-    search = st.button("Search")
+    radius = st.slider("Radius (miles)", 100, 1000, 500)
+    search_clicked = st.button("Search")
 
-if search:
+st.title("🌍 Hydrogen Projects Locator")
+
+if search_clicked:
     query = f"{location}, {country}" if location else country
     coords = geocode_location(query)
 
-    if coords == (None, None):
-        st.error("Location not found. Please try another location or country.")
-    else:
+    if coords:
         filtered_df = filter_projects(df, coords, radius)
 
-        # Map visualization
-        m = folium.Map(location=coords, zoom_start=6)
-        folium.Marker(coords, tooltip=f"Search Location: {query}", icon=folium.Icon(color='red')).add_to(m)
-        marker_cluster = MarkerCluster().add_to(m)
-
-        for _, row in filtered_df.iterrows():
-            folium.Marker(
-                [row.Latitude, row.Longitude],
-                popup=f"<b>{row['Project name']}</b><br>"
-                      f"Location: {row.Location}<br>"
-                      f"Status: {row.Status}<br>"
-                      f"Technology: {row.Technology}<br>"
-                      f"Product: {row.Product}<br>"
-                      f"Size: {row['Announced Size']}<br>"
-                      f"Distance: {row['Distance (miles)']:.1f} miles",
-                tooltip=row.Location
-            ).add_to(marker_cluster)
-
-        # Display map without large gap
-        st_folium(m, width=1200, height=600)
-
-        # Display data table immediately below the map
-        st.subheader("📋 Projects within radius:")
         if filtered_df.empty:
             st.warning("No projects found within the specified radius.")
         else:
-            st.dataframe(
-                filtered_df[['Project name', 'Country', 'Location', 'Status', 'Technology',
-                             'Product', 'Announced Size', 'Distance (miles)']].reset_index(drop=True),
-                width=1200
-            )
+            # Map generation
+            m = folium.Map(location=coords, zoom_start=6)
+            MarkerCluster().add_to(m)
+            folium.Marker(coords, icon=folium.Icon(color='red'), tooltip=query).add_to(m)
+
+            for _, row in filtered_df.iterrows():
+                folium.Marker(
+                    location=[row.Latitude, row.Longitude],
+                    popup=(
+                        f"<strong>{row['Project name']}</strong><br>"
+                        f"Location: {row.Location}<br>"
+                        f"Status: {row.Status}<br>"
+                        f"Technology: {row.Technology}<br>"
+                        f"Product: {row.Product}<br>"
+                        f"Size: {row['Announced Size']}<br>"
+                        f"Distance: {row['Distance (miles)']:.1f} miles"
+                    ),
+                    tooltip=row.Location
+                ).add_to(m)
+
+            st_folium(m, height=600, width=1200)
+
+            # Table Display
+            st.subheader("📋 Projects within radius:")
+            st.dataframe(filtered_df[['Project name', 'Country', 'Location', 'Status',
+                                      'Technology', 'Product', 'Announced Size', 'Distance (miles)']].reset_index(drop=True), width=1200)
+    else:
+        st.error("Location not found. Please enter a valid country and/or location.")
+else:
+    st.info("Enter search criteria and click 'Search' to visualize hydrogen projects.")
