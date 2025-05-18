@@ -3,10 +3,12 @@ import pandas as pd
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
-from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
+from geopy.distance import geodesic
 
-# Load your Excel data
+st.set_page_config(layout="wide", page_title="Hydrogen Projects Locator")
+
+# Load data from Excel
 @st.cache_data
 def load_data():
     df = pd.read_excel('Hydro Database with places.xlsx', sheet_name='Sheet1')
@@ -15,75 +17,67 @@ def load_data():
 
 df = load_data()
 
-# Geolocate input location
+# Geocode input location
 @st.cache_data
-def geolocate(place):
-    geolocator = Nominatim(user_agent="streamlit_app")
-    location = geolocator.geocode(place)
-    if location:
-        return (location.latitude, location.longitude)
-    return None
+def geocode_location(query):
+    geolocator = Nominatim(user_agent="project_locator")
+    location = geolocator.geocode(query)
+    return (location.latitude, location.longitude) if location else (None, None)
 
 # Filter projects within radius
-def projects_within_radius(df, center, radius_miles=500):
-    results = []
-    for _, row in df.iterrows():
-        proj_location = (row['Latitude'], row['Longitude'])
-        distance = geodesic(center, proj_location).miles
-        if distance <= radius_miles:
-            results.append((row, round(distance, 1)))
-    results_df = pd.DataFrame([{
-        'Project name': r[0]['Project name'],
-        'Country': r[0]['Country'],
-        'Location': r[0]['Location'],
-        'Status': r[0]['Status'],
-        'Technology': r[0]['Technology'],
-        'Product': r[0]['Product'],
-        'Announced Size': r[0]['Announced Size'],
-        'Distance (miles)': r[1]
-    } for r in results])
-    return results_df
+def filter_projects(df, coords, radius=500):
+    if coords == (None, None):
+        return pd.DataFrame()
+    df['Distance (miles)'] = df.apply(lambda row: geodesic(coords, (row.Latitude, row.Longitude)).miles, axis=1)
+    return df[df['Distance (miles)'] <= radius].sort_values(by='Distance (miles)')
 
-# Streamlit UI
-st.title("🌍 Hydrogen Projects Locator (500-mile Radius)")
+# App UI
+st.title("🌍 Hydrogen Projects Locator")
 
-location_input = st.text_input("📍 Enter City, State, or Country (e.g., Milan, Italy or Houston, Texas):")
+with st.sidebar:
+    st.header("🔎 Search Projects")
+    country = st.text_input("Country (required):")
+    location = st.text_input("City or State (optional):")
+    radius = st.slider("Search radius (miles)", 100, 1000, 500, step=50)
 
-if location_input:
-    center_coords = geolocate(location_input)
+if st.sidebar.button("Search"):
+    query = f"{location}, {country}" if location else country
+    coords = geocode_location(query)
 
-    if center_coords:
-        filtered_df = projects_within_radius(df, center_coords)
+    if coords == (None, None):
+        st.sidebar.error("Location not found. Try another location or country.")
+    else:
+        filtered_df = filter_projects(df, coords, radius)
 
-        if filtered_df.empty:
-            st.warning("No projects found within 500 miles.")
-        else:
-            # Create map
-            m = folium.Map(location=center_coords, zoom_start=5)
-            folium.Marker(center_coords, tooltip="Search Location", icon=folium.Icon(color='red')).add_to(m)
+        col_map, col_table = st.columns([2, 1])
+
+        with col_map:
+            # Map visualization
+            m = folium.Map(location=coords, zoom_start=6)
+            folium.Marker(coords, tooltip=f"Search Location: {query}", icon=folium.Icon(color='red')).add_to(m)
             marker_cluster = MarkerCluster().add_to(m)
 
             for _, row in filtered_df.iterrows():
                 folium.Marker(
-                    location=[df.loc[df['Project name'] == row['Project name'], 'Latitude'].values[0],
-                              df.loc[df['Project name'] == row['Project name'], 'Longitude'].values[0]],
-                    popup=(f"<b>{row['Project name']}</b><br>"
-                           f"Status: {row['Status']}<br>"
-                           f"Technology: {row['Technology']}<br>"
-                           f"Product: {row['Product']}<br>"
-                           f"Size: {row['Announced Size']}<br>"
-                           f"Distance: {row['Distance (miles)']} miles"),
-                    tooltip=row['Location']
+                    [row.Latitude, row.Longitude],
+                    popup=f"<b>{row['Project name']}</b><br>"
+                          f"Location: {row.Location}<br>"
+                          f"Status: {row.Status}<br>"
+                          f"Technology: {row.Technology}<br>"
+                          f"Product: {row.Product}<br>"
+                          f"Size: {row['Announced Size']}<br>"
+                          f"Distance: {row['Distance (miles)']:.1f} miles",
+                    tooltip=row.Location
                 ).add_to(marker_cluster)
 
-            # Display map
-            st_folium(m, width=700, height=500)
+            st_folium(m, width=900, height=600)
 
-            # Display data table
-            st.subheader("📋 Projects within 500 miles:")
-            st.dataframe(filtered_df.sort_values(by='Distance (miles)'))
-
-    else:
-        st.error("Location not found. Please enter a valid location.")
-else:
-    st.info("Enter a location above to search for nearby hydrogen projects.")
+        with col_table:
+            # Project Table
+            st.subheader("📋 Projects within radius:")
+            if filtered_df.empty:
+                st.warning("No projects found within specified radius.")
+            else:
+                st.dataframe(filtered_df[['Project name', 'Country', 'Location', 'Status', 'Technology',
+                                          'Product', 'Announced Size', 'Distance (miles)']].reset_index(drop=True),
+                             height=600, width=600)
