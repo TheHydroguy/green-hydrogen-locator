@@ -1,60 +1,65 @@
-import pandas as pd
 import streamlit as st
-import pydeck as pdk
+import pandas as pd
+import folium
+from folium.plugins import MarkerCluster
+from streamlit_folium import st_folium
 
-st.set_page_config(page_title="Green Hydrogen Locator", layout="wide")
-st.title("🌍 Green Hydrogen Projects Viewer")
-st.markdown("Search by **country** to view real projects and their technologies from your dataset.")
+# Load your Excel data
+@st.cache_data
+def load_data():
+    df = pd.read_excel('Hydro Database with places.xlsx', sheet_name='Sheet1')
+    df['Location'] = df['Location'].fillna(df['Country'])
+    return df
 
-# Load your Excel file (must match filename in repo)
-EXCEL_FILE = "Hydro Database - Final.xlsx"
-df = pd.read_excel(EXCEL_FILE)
+df = load_data()
 
-# Ensure lat/lon are numeric
-df["Latitude"] = pd.to_numeric(df["Latitude"], errors="coerce")
-df["Longitude"] = pd.to_numeric(df["Longitude"], errors="coerce")
-df = df.dropna(subset=["Latitude", "Longitude"])
+# Function to filter projects
+def filter_projects(df, country, location):
+    if location:
+        filtered = df[df['Location'].str.contains(location, case=False, na=False)]
+        if not filtered.empty:
+            return filtered
+    if country:
+        filtered = df[df['Country'].str.contains(country, case=False, na=False)]
+        if not filtered.empty:
+            return filtered
+    return df  # Return all if no match
 
-# Search box
-query = st.text_input("🔍 Enter a country name (e.g. USA, NLD, FRA):")
+# Streamlit App Interface
+st.title("🌍 Hydrogen Projects Locator")
 
-if query:
-    filtered = df[df["Country"].astype(str).str.contains(query, case=False, na=False)]
-    st.success(f"✅ Found {len(filtered)} project(s) in '{query}'.")
+# User inputs
+country = st.text_input("Enter Country (e.g., Italy, USA):")
+location = st.text_input("Enter City or State (optional):")
 
-    if not filtered.empty:
-        # Map
-        st.pydeck_chart(pdk.Deck(
-            map_style="mapbox://styles/mapbox/light-v9",
-            initial_view_state=pdk.ViewState(
-                latitude=filtered["Latitude"].mean(),
-                longitude=filtered["Longitude"].mean(),
-                zoom=4,
-                pitch=0
-            ),
-            layers=[
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=filtered,
-                    get_position='[Longitude, Latitude]',
-                    get_radius=30000,
-                    get_color=[0, 120, 200, 160],
-                    pickable=True
-                )
-            ],
-            tooltip={
-                "html": "<b>Project:</b> {Project Name}<br/>"
-                        "<b>Status:</b> {Status}<br/>"
-                        "<b>Tech:</b> {Technology}<br/>"
-                        "<b>Product:</b> {Product}<br/>"
-                        "<b>Size:</b> {Announced Size}",
-                "style": {"backgroundColor": "navy", "color": "white"}
-            }
-        ))
+# Filter data based on input
+filtered_df = filter_projects(df, country, location)
 
-        # Table view
-        st.dataframe(filtered.reset_index(drop=True))
-    else:
-        st.warning("No projects found for that country.")
-else:
-    st.info("Enter a country to begin.")
+if filtered_df.empty:
+    st.warning("No matching projects found. Displaying all available projects.")
+    filtered_df = df
+
+# Generate map
+map_center = [filtered_df['Latitude'].mean(), filtered_df['Longitude'].mean()]
+m = folium.Map(location=map_center, zoom_start=4)
+marker_cluster = MarkerCluster().add_to(m)
+
+for _, row in filtered_df.iterrows():
+    folium.Marker(
+        location=[row['Latitude'], row['Longitude']],
+        popup=(
+            f"<b>{row['Project name']}</b><br>"
+            f"Status: {row['Status']}<br>"
+            f"Technology: {row['Technology']}<br>"
+            f"Product: {row['Product']}<br>"
+            f"Size: {row['Announced Size']}"
+        ),
+        tooltip=row['Location']
+    ).add_to(marker_cluster)
+
+# Display the map in Streamlit
+st_folium(m, width=700, height=500)
+
+# Display data table optionally
+with st.expander("📋 See detailed data"):
+    st.dataframe(filtered_df[['Project name', 'Country', 'Location', 'Status', 'Technology', 'Product', 'Announced Size']])
