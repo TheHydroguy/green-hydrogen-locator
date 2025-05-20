@@ -5,30 +5,39 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
 from geopy.distance import geodesic
+from streamlit_cookies_manager import EncryptedCookieManager
 
 st.set_page_config(page_title="Hydrogen Projects Locator", layout="wide")
 
-# --- PASSWORD AND FREE LIMIT SETUP ---
-PASSWORD = "subscriber_pass"  # Set your subscriber password here
+PASSWORD = "subscriber_pass"
 MAX_FREE_USES = 4
 
-# Initialize session state
-if "search_count" not in st.session_state:
-    st.session_state["search_count"] = 0
-if "unlocked" not in st.session_state:
-    st.session_state["unlocked"] = False
+# --- COOKIE SETUP ---
+cookies = EncryptedCookieManager(prefix="carbonshift_", password="your_cookie_secret")
+if not cookies.ready():
+    st.stop()
 
-# Function to check password
+# Initialize persistent values from cookies
+if "search_count" not in cookies:
+    cookies["search_count"] = "0"
+if "unlocked" not in cookies:
+    cookies["unlocked"] = "False"
+
+search_count = int(cookies["search_count"])
+unlocked = cookies["unlocked"] == "True"
+
+# --- PASSWORD FUNCTION ---
 def check_password():
     def verify():
         if st.session_state["password_input"] == PASSWORD:
-            st.session_state["unlocked"] = True
-            del st.session_state["password_input"]
-            st.success("🔓 Successfully unlocked! Enjoy unlimited searches.")
+            cookies["unlocked"] = "True"
+            cookies.save()
+            st.success("🔓 Successfully unlocked! Unlimited searches enabled.")
         else:
             st.error("❌ Incorrect password. Try again.")
 
-    st.text_input("Subscriber Password:", type="password", key="password_input", on_change=verify)
+    st.text_input("Subscriber Password:", type="password",
+                  key="password_input", on_change=verify)
 
 # --- LOAD DATA ---
 @st.cache_data
@@ -59,7 +68,7 @@ def nearby(center, radius_mi: int):
             out.append(rec)
     return pd.DataFrame(out).sort_values("Distance (miles)")
 
-# --- SIDEBAR SEARCH FORM ---
+# --- SIDEBAR FORM ---
 with st.sidebar.form("search"):
     st.header("🔍 Search")
     country = st.text_input("Country *")
@@ -70,7 +79,7 @@ with st.sidebar.form("search"):
 st.title("🌍 Hydrogen Projects Locator")
 
 # --- LOCK AFTER MAX_FREE_USES ---
-if st.session_state["search_count"] >= MAX_FREE_USES and not st.session_state["unlocked"]:
+if search_count >= MAX_FREE_USES and not unlocked:
     st.warning(
         "🔒 You've reached your free search limit. "
         "[Subscribe to The Carbon Shift](https://www.thecarbonshift.com/) to unlock unlimited access."
@@ -78,9 +87,12 @@ if st.session_state["search_count"] >= MAX_FREE_USES and not st.session_state["u
     check_password()
     st.stop()
 
-# --- HANDLE SEARCH ---
+# --- SEARCH ACTION ---
 if submitted:
-    st.session_state["search_count"] += 1
+    search_count += 1
+    cookies["search_count"] = str(search_count)
+    cookies.save()
+
     query = f"{city}, {country}" if city else country
     coords = geocode(query)
 
@@ -126,5 +138,4 @@ if "results" in st.session_state and not st.session_state["results"].empty:
 else:
     st.info("Use the form on the left and press **Search**.")
 
-# --- FOOTER DISPLAY OF COUNT ---
-st.sidebar.caption(f"Searches used: {st.session_state['search_count']} / {MAX_FREE_USES}")
+st.sidebar.caption(f"Searches used: {search_count} / {MAX_FREE_USES}")
