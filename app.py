@@ -1,27 +1,35 @@
-# app.py  –  final single-column layout
-# ------------------------------------
-import streamlit as st
-import pandas as pd
-import folium
-from folium.plugins import MarkerCluster
-from streamlit_folium import st_folium
-from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
+# --- Access Control after 4 searches ---
+MAX_FREE_USES = 4
+PASSWORD = "subscriber_pass"  # set your subscriber password here
+
+if "search_count" not in st.session_state:
+    st.session_state["search_count"] = 0
+if "unlocked" not in st.session_state:
+    st.session_state["unlocked"] = False
+
+def unlock_with_password():
+    def check_pass():
+        if st.session_state["entered_pass"] == PASSWORD:
+            st.session_state["unlocked"] = True
+            del st.session_state["entered_pass"]
+            st.success("🔓 Unlocked! Enjoy unlimited searches.")
+        else:
+            st.error("❌ Incorrect password. Please try again.")
+
+    st.text_input("Enter subscriber password:", type="password",
+                  on_change=check_pass, key="entered_pass")
+
+# Lock if exceeded max uses and not unlocked
+if st.session_state["search_count"] >= MAX_FREE_USES and not st.session_state["unlocked"]:
+    st.warning("🔒 You've reached your free search limit. Please [subscribe to The Carbon Shift](https://www.thecarbonshift.com/) to unlock unlimited searches.")
+    unlock_with_password()
+    st.stop()
+
+# --- rest of your existing app below ---
 
 st.set_page_config(page_title="Hydrogen Projects Locator", layout="wide")
 
-# --- tiny CSS tweak to keep widgets snug ----------------------------
-st.markdown(
-    """
-    <style>
-    .block-container > div + div { margin-top: 0.5rem !important; }
-    .block-container { padding-top: 1rem !important; }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-# ---------------- LOAD DATA ----------------------------------------
+# existing CSS, functions, data loading...
 @st.cache_data
 def load_df():
     df = pd.read_excel("Hydro Database with places.xlsx", sheet_name=0)
@@ -30,7 +38,7 @@ def load_df():
 
 df = load_df()
 
-# ---------------- GEOCODER -----------------------------------------
+# existing geocode, nearby functions...
 geocoder = Nominatim(user_agent="hydrogen_locator")
 
 @st.cache_data
@@ -38,7 +46,6 @@ def geocode(place: str):
     loc = geocoder.geocode(place, timeout=10)
     return (loc.latitude, loc.longitude) if loc else None
 
-# -------------- DISTANCE FILTER ------------------------------------
 def nearby(center, radius_mi: int):
     lat0, lon0 = center
     out = []
@@ -50,7 +57,7 @@ def nearby(center, radius_mi: int):
             out.append(rec)
     return pd.DataFrame(out).sort_values("Distance (miles)")
 
-# -------------- SIDEBAR SEARCH FORM --------------------------------
+# sidebar form
 with st.sidebar.form("search"):
     st.header("🔍  Search")
     country  = st.text_input("Country *")
@@ -60,8 +67,8 @@ with st.sidebar.form("search"):
 
 st.title("🌍  Hydrogen Projects Locator")
 
-# ---------------- RUN SEARCH & STORE IN SESSION --------------------
 if submitted:
+    st.session_state["search_count"] += 1  # increment search count here
     query  = f"{city}, {country}" if city else country
     coords = geocode(query)
 
@@ -72,12 +79,11 @@ if submitted:
         st.session_state["coords"]  = coords
         st.session_state["results"] = nearby(coords, radius)
 
-# ---------------- DISPLAY RESULTS ----------------------------------
+# display map and results as before
 if "results" in st.session_state and not st.session_state["results"].empty:
     results = st.session_state["results"]
     center  = st.session_state["coords"]
 
-    # build map
     m = folium.Map(location=center, zoom_start=6)
     folium.Marker(center, tooltip=st.session_state["query"],
                   icon=folium.Icon(color="red")).add_to(m)
@@ -94,10 +100,8 @@ if "results" in st.session_state and not st.session_state["results"].empty:
                    f"Distance: {r['Distance (miles)']} mi")
         ).add_to(cluster)
 
-    # ---- map + table in SINGLE container (no vertical gap) ----------
     with st.container():
         st_folium(m, height=500, use_container_width=True)
-
         st.subheader("📋 Projects within radius")
         st.dataframe(
             results[["Project name", "Country", "Location", "Status",
